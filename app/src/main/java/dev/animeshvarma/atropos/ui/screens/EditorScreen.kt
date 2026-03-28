@@ -4,10 +4,12 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.Toast
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,13 +21,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.PlayerView
 import dev.animeshvarma.atropos.model.AtroposUiState
 import dev.animeshvarma.atropos.ui.components.EditorSliders
@@ -35,6 +40,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
+@OptIn(UnstableApi::class)
 @Composable
 fun EditorScreen(
     uiState: AtroposUiState,
@@ -43,65 +49,98 @@ fun EditorScreen(
     onCutFurther: () -> Unit
 ) {
     val context = LocalContext.current
+    val MAX_BUFFER_MS = 6 * 60 * 1000L
 
     var viewWindowStartMs by remember { mutableLongStateOf(0L) }
     var viewWindowEndMs by remember { mutableLongStateOf(0L) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var trimRange by remember { mutableStateOf(0f..100f) }
+    var previousTrimRange by remember { mutableStateOf(0f..100f) }
 
     var isInitialized by remember { mutableStateOf(false) }
     var showConfirmationDialog by remember { mutableStateOf(false) }
 
-    // NEW: Store the duration of each chunk so we can translate Global <-> Local times
     var chunkDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var totalDurationMs by remember { mutableLongStateOf(0L) }
+    var globalOffsetMs by remember { mutableLongStateOf(0L) }
 
-    // 1. Math Phase: Calculate global duration across all chunks
+    var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+
     LaunchedEffect(bufferFiles) {
         withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
-            val durations = mutableListOf<Long>()
-            var total = 0L
+            val rawDurations = mutableListOf<Long>()
+            var totalDiskMs = 0L
+
             for (file in bufferFiles) {
                 try {
                     retriever.setDataSource(file.absolutePath)
                     val durStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     val dur = durStr?.toLongOrNull() ?: 0L
-                    durations.add(dur)
-                    total += dur
+                    rawDurations.add(dur)
+                    totalDiskMs += dur
                 } catch (e: Exception) {
-                    durations.add(0L) // Failsafe for broken files
+                    rawDurations.add(0L)
                 }
             }
             retriever.release()
 
-            withContext(Dispatchers.Main) {
-                chunkDurations = durations
-                totalDurationMs = total
+            val offset = maxOf(0L, totalDiskMs - MAX_BUFFER_MS)
+            var timeToChop = offset
 
-                // Initialize UI Bounds with the FULL duration
-                if (total > 0 && !isInitialized) {
-                    viewWindowEndMs = total
-                    trimRange = 0f..total.toFloat()
+            val validChunkDurations = mutableListOf<Long>()
+            var finalTotalMs = 0L
+
+            withContext(Dispatchers.Main) {
+                globalOffsetMs = offset
+                val player = ExoPlayer.Builder(context).build().apply {
+                    setSeekParameters(SeekParameters.EXACT)
+                }
+
+                for (i in bufferFiles.indices) {
+                    val file = bufferFiles[i]
+                    val fileDur = rawDurations[i]
+
+                    if (timeToChop >= fileDur && fileDur > 0) {
+                        timeToChop -= fileDur
+                    } else {
+                        val itemDur = fileDur - timeToChop
+                        validChunkDurations.add(itemDur)
+                        finalTotalMs += itemDur
+
+                        val builder = MediaItem.Builder().setUri(Uri.fromFile(file))
+                        if (timeToChop > 0) {
+                            builder.setClippingConfiguration(
+                                MediaItem.ClippingConfiguration.Builder()
+                                    .setStartPositionMs(timeToChop)
+                                    .build()
+                            )
+                            timeToChop = 0
+                        }
+                        player.addMediaItem(builder.build())
+                    }
+                }
+
+                player.prepare()
+                player.playWhenReady = true
+
+                chunkDurations = validChunkDurations
+                totalDurationMs = finalTotalMs
+                exoPlayer = player
+
+                if (finalTotalMs > 0 && !isInitialized) {
+                    viewWindowEndMs = finalTotalMs
+                    val initialRange = 0f..finalTotalMs.toFloat()
+                    trimRange = initialRange
+                    previousTrimRange = initialRange
                     isInitialized = true
                 }
             }
         }
     }
 
-    // Media3 ExoPlayer Setup
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            bufferFiles.forEach { file ->
-                addMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
-            }
-            prepare()
-            playWhenReady = true
-        }
-    }
-
-    // Helper: Seek global timeline -> ExoPlayer chunk + local position
     fun seekToGlobal(globalMs: Long) {
+        val player = exoPlayer ?: return
         var remaining = globalMs
         var windowIdx = 0
         for (i in chunkDurations.indices) {
@@ -112,17 +151,38 @@ fun EditorScreen(
             }
             remaining -= dur
         }
-        exoPlayer.seekTo(windowIdx, remaining)
+        player.seekTo(windowIdx, remaining)
     }
 
-    // 2. Playback Phase: Enforce video loop & read global timeline
+    // --- SEEKING & AUTO-PLAY LOGIC ---
+    var lastSeekTimeMs by remember { mutableLongStateOf(0L) }
+
+    fun requestSeek(globalMs: Long) {
+        val player = exoPlayer ?: return
+        val now = System.currentTimeMillis()
+
+        player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+        if (now - lastSeekTimeMs > 60) {
+            seekToGlobal(globalMs)
+            lastSeekTimeMs = now
+        }
+    }
+
+    fun onDragRelease() {
+        val player = exoPlayer ?: return
+        player.setSeekParameters(SeekParameters.EXACT)
+        seekToGlobal(currentPositionMs)
+        player.play()
+    }
+    // -------------------------------------
+
     LaunchedEffect(exoPlayer, isInitialized, chunkDurations) {
         while (true) {
-            if (isInitialized && chunkDurations.isNotEmpty()) {
-                val windowIndex = exoPlayer.currentMediaItemIndex
-                val localPos = exoPlayer.currentPosition
+            val player = exoPlayer
+            if (player != null && isInitialized && chunkDurations.isNotEmpty()) {
+                val windowIndex = player.currentMediaItemIndex
+                val localPos = player.currentPosition
 
-                // Map local chunk position back to the Global UI Timeline
                 var globalPos = 0L
                 for (i in 0 until windowIndex) {
                     if (i < chunkDurations.size) {
@@ -130,13 +190,12 @@ fun EditorScreen(
                     }
                 }
                 globalPos += localPos
-                currentPositionMs = globalPos
 
-                val cutStart = trimRange.start.toLong()
-                val cutEnd = trimRange.endInclusive.toLong()
+                if (player.isPlaying) {
+                    currentPositionMs = globalPos
 
-                if (exoPlayer.isPlaying) {
-                    // Force loop based on the GLOBAL timeline
+                    val cutStart = trimRange.start.toLong()
+                    val cutEnd = trimRange.endInclusive.toLong()
                     if (globalPos >= cutEnd) {
                         seekToGlobal(cutStart)
                     } else if (globalPos < cutStart - 500) {
@@ -144,29 +203,42 @@ fun EditorScreen(
                     }
                 }
             }
-            delay(50) // Smooth slider
+            delay(50)
         }
     }
 
-    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { exoPlayer.pause() }
-    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { exoPlayer?.pause() }
+    DisposableEffect(Unit) { onDispose { exoPlayer?.release() } }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Video Player
         AndroidView(
-            modifier = Modifier.fillMaxSize().padding(bottom = 280.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 280.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            exoPlayer?.pause()
+                            tryAwaitRelease()
+                            exoPlayer?.play()
+                        }
+                    )
+                },
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false // User uses our custom sliders instead!
+                    useController = false
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
                     )
                 }
+            },
+            update = { view ->
+                if (view.player != exoPlayer) {
+                    view.player = exoPlayer
+                }
             }
         )
 
-        // Controls
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -182,11 +254,28 @@ fun EditorScreen(
                     viewWindowEndMs = viewWindowEndMs,
                     currentPositionMs = currentPositionMs,
                     onPositionChange = { newPos ->
+                        exoPlayer?.pause()
                         currentPositionMs = newPos
-                        seekToGlobal(newPos) // THE FIX: Translates slider position to ExoPlayer
+                        requestSeek(newPos)
                     },
                     trimRange = trimRange,
-                    onTrimRangeChange = { trimRange = it }
+                    onTrimRangeChange = { newTrimRange ->
+                        exoPlayer?.pause()
+                        val startChanged = newTrimRange.start != previousTrimRange.start
+                        val endChanged = newTrimRange.endInclusive != previousTrimRange.endInclusive
+                        val targetPos = when {
+                            startChanged -> newTrimRange.start.toLong()
+                            endChanged -> newTrimRange.endInclusive.toLong()
+                            else -> currentPositionMs
+                        }
+                        currentPositionMs = targetPos
+                        requestSeek(targetPos)
+                        previousTrimRange = newTrimRange
+                        trimRange = newTrimRange
+                    },
+                    onDragFinished = {
+                        onDragRelease()
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -200,7 +289,7 @@ fun EditorScreen(
                         onClick = {
                             viewWindowStartMs = trimRange.start.toLong()
                             viewWindowEndMs = trimRange.endInclusive.toLong()
-                            seekToGlobal(viewWindowStartMs) // THE FIX
+                            seekToGlobal(viewWindowStartMs)
                             onCutFurther()
                         },
                         modifier = Modifier.weight(1f).height(50.dp)
@@ -214,7 +303,7 @@ fun EditorScreen(
 
                     Button(
                         onClick = {
-                            exoPlayer.pause()
+                            exoPlayer?.pause()
                             showConfirmationDialog = true
                         },
                         modifier = Modifier.weight(1f).height(50.dp)
@@ -228,25 +317,24 @@ fun EditorScreen(
             }
         }
 
-        // Confirmation Dialog (Code unchanged from your original)
         AnimatedVisibility(visible = showConfirmationDialog, enter = fadeIn(), exit = fadeOut()) {
             AlertDialog(
                 onDismissRequest = {
                     showConfirmationDialog = false
-                    exoPlayer.play()
+                    exoPlayer?.play()
                 },
                 title = { Text("Save Snippet") },
                 text = { Text("Are you sure you want to finalize this cut and save it to your Gallery?") },
                 confirmButton = {
                     Button(onClick = {
-                        exoPlayer.pause()
+                        exoPlayer?.pause()
                         Toast.makeText(context, "Exporting Video... Please Wait.", Toast.LENGTH_LONG).show()
 
                         VideoExporter.exportTrimmedVideo(
                             context = context,
                             files = bufferFiles,
-                            trimStartMs = trimRange.start.toLong(),
-                            trimEndMs = trimRange.endInclusive.toLong(),
+                            trimStartMs = trimRange.start.toLong() + globalOffsetMs,
+                            trimEndMs = trimRange.endInclusive.toLong() + globalOffsetMs,
                             onSuccess = {
                                 showConfirmationDialog = false
                                 Toast.makeText(context, "Saved to Gallery Successfully!", Toast.LENGTH_LONG).show()

@@ -20,8 +20,8 @@ class VideoBufferManager(private val context: Context) {
         if (!exists()) mkdirs()
     }
 
-    private val maxChunks = 5
-    private val chunkDurationMs = 60_000L
+    private val maxChunks = 3
+    private val chunkDurationMs = 3 * 60_000L
 
     private val chunkQueue = LinkedList<File>()
     private var activeRecording: Recording? = null
@@ -40,80 +40,65 @@ class VideoBufferManager(private val context: Context) {
     fun startRollingBuffer() {
         if (chunkingJob?.isActive == true) return
 
-        chunkingJob = scope.launch {
+        chunkingJob = scope.launch(Dispatchers.Main) {
             while (isActive) {
                 val chunkFile = File(bufferDirectory, "chunk_${System.currentTimeMillis()}.mp4")
                 val outputOptions = FileOutputOptions.Builder(chunkFile).build()
 
                 val finalizeDeferred = CompletableDeferred<Unit>()
-                // FIX 1: Add a deferred to track when the hardware ACTUALLY starts recording
                 val startDeferred = CompletableDeferred<Unit>()
 
                 val pendingRecording = recorder.prepareRecording(context, outputOptions).withAudioEnabled()
 
-                try {
-                    activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context)) { event ->
-                        when (event) {
-                            is VideoRecordEvent.Start -> {
-                                // Hardware is now officially recording frames!
-                                startDeferred.complete(Unit)
-                            }
-                            is VideoRecordEvent.Status -> {
-                                val pastFilesSize = chunkQueue.sumOf { it.length() }
-                                val totalSizeMb = (pastFilesSize + event.recordingStats.numBytesRecorded) / (1024f * 1024f)
-                                onSizeUpdated?.invoke(totalSizeMb)
-                            }
-                            is VideoRecordEvent.Finalize -> {
-                                activeRecording = null
-
-                                // Failsafe: if hardware fails before starting, unblock the loop
-                                startDeferred.complete(Unit)
-
-                                // Cleanly handle 0-byte or error files so they don't break the Editor
-                                if (!event.hasError() || event.error == VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA) {
-                                    if (chunkFile.exists() && chunkFile.length() > 0) {
-                                        manageQueue(chunkFile)
-                                    } else {
-                                        chunkFile.delete()
-                                    }
-                                } else {
-                                    Log.e("AtroposBuffer", "Chunk Error: ${event.error}")
-                                    if (chunkFile.exists()) chunkFile.delete()
+                var isStarted = false
+                while (isActive && !isStarted) {
+                    try {
+                        activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context)) { event ->
+                            when (event) {
+                                is VideoRecordEvent.Start -> startDeferred.complete(Unit)
+                                is VideoRecordEvent.Status -> {
+                                    val pastFilesSize = chunkQueue.sumOf { it.length() }
+                                    val totalSizeMb = (pastFilesSize + event.recordingStats.numBytesRecorded) / (1024f * 1024f)
+                                    onSizeUpdated?.invoke(totalSizeMb)
                                 }
+                                is VideoRecordEvent.Finalize -> {
+                                    activeRecording = null
+                                    startDeferred.complete(Unit) // Failsafe
 
-                                pendingFinalizeAction?.invoke()
-                                pendingFinalizeAction = null
+                                    if (!event.hasError() || event.error == VideoRecordEvent.Finalize.ERROR_NO_VALID_DATA) {
+                                        if (chunkFile.exists() && chunkFile.length() > 0) manageQueue(chunkFile)
+                                        else chunkFile.delete()
+                                    } else {
+                                        Log.e("AtroposBuffer", "Chunk Error: ${event.error}")
+                                        if (chunkFile.exists()) chunkFile.delete()
+                                    }
 
-                                finalizeDeferred.complete(Unit)
+                                    pendingFinalizeAction?.invoke()
+                                    pendingFinalizeAction = null
+                                    finalizeDeferred.complete(Unit)
+                                }
                             }
                         }
+                        isStarted = true
+                    } catch (_: Exception) {
+                        delay(50)
                     }
-                } catch (e: Exception) {
-                    Log.e("AtroposBuffer", "Hardware codec busy. Retrying...", e)
-                    delay(1000) // Wait 1 second and try again
-                    continue
                 }
 
                 try {
-                    // FIX 2: Wait for the camera to actually spin up before counting 60 seconds!
                     startDeferred.await()
-
-                    delay(chunkDurationMs) // Now this waits a FULL 60 seconds of actual video time
+                    delay(chunkDurationMs)
                     activeRecording?.stop()
                 } catch (e: CancellationException) {
-                    // If user clicks Snapshot, this safely catches the cancellation and stops recording early
                     activeRecording?.stop()
                     throw e
                 }
 
                 finalizeDeferred.await()
 
-                // Hardware Flush Delay (Allows MediaCodec to reset cleanly)
-                delay(500)
             }
         }
     }
-
     fun stopRecording() {
         chunkingJob?.cancel()
         activeRecording?.stop()
@@ -125,7 +110,6 @@ class VideoBufferManager(private val context: Context) {
             pendingFinalizeAction = onComplete
             activeRecording?.stop()
         } else {
-            // If user clicks snapshot during the 500ms gap, proceed instantly!
             onComplete()
         }
     }

@@ -17,6 +17,7 @@ fun EditorSliders(
     onPositionChange: (Long) -> Unit,
     trimRange: ClosedFloatingPointRange<Float>,
     onTrimRangeChange: (ClosedFloatingPointRange<Float>) -> Unit,
+    onDragFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val trimmedLengthMs = (trimRange.endInclusive - trimRange.start).toLong()
@@ -48,8 +49,9 @@ fun EditorSliders(
             value = clampedGlobalPos,
             onValueChange = { onPositionChange(it.toLong()) },
             valueRange = windowStartF..windowEndF,
-            modifier = Modifier.height(24.dp)
-        )
+            modifier = Modifier.height(24.dp),
+            onValueChangeFinished = { onDragFinished() },
+            )
 
         Spacer(modifier = Modifier.height(12.dp))
 
@@ -67,6 +69,7 @@ fun EditorSliders(
                 thumbColor = MaterialTheme.colorScheme.secondary,
                 activeTrackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f)
             ),
+            onValueChangeFinished = { onDragFinished() },
             modifier = Modifier.height(32.dp)
         )
 
@@ -86,6 +89,7 @@ fun EditorSliders(
                 thumbColor = MaterialTheme.colorScheme.tertiary,
                 activeTrackColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f)
             ),
+            onValueChangeFinished = { onDragFinished() },
             modifier = Modifier.height(32.dp)
         )
 

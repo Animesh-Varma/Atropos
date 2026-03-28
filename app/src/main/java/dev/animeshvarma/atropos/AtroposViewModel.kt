@@ -20,7 +20,7 @@ class AtroposViewModel : ViewModel() {
     private var sleepTimerJob: Job? = null
     private var recordingTimerJob: Job? = null
 
-    private val maxBufferDurationMs = 5 * 60 * 1000L // 5 minutes max (5 chunks of 60s)
+    private val maxBufferDurationMs = 6 * 60 * 1000L
 
     fun startRecording() {
         _uiState.update {
@@ -42,7 +42,6 @@ class AtroposViewModel : ViewModel() {
                 delay(1000)
                 _uiState.update {
                     val newSessionDuration = it.recordingDurationMs + 1000
-                    // Buffer length caps out at 5 minutes once it starts deleting old chunks
                     val currentBuffer = minOf(newSessionDuration, maxBufferDurationMs)
 
                     it.copy(
