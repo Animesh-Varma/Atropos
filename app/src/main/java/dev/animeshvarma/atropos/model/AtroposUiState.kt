@@ -1,12 +1,9 @@
 package dev.animeshvarma.atropos.model
+
 import android.graphics.Bitmap
 
 enum class AppMode {
-    IDLE,               // Initial state, ready to record
-    RECORDING_AWAKE,    // Recording, actively showing live feed
-    RECORDING_ASLEEP,   // Recording, screen darkened to save battery
-    PAUSED_PROMPT,      // Snapshot clicked, asking to continue or cancel
-    EDITOR              // In the editor trimming the video
+    IDLE, RECORDING_AWAKE, RECORDING_ASLEEP, PAUSED_PROMPT, EDITOR
 }
 
 data class AtroposUiState(
@@ -19,5 +16,18 @@ data class AtroposUiState(
     // Editor specific
     val editorVideoPath: String? = null,
     val trimmedLengthMs: Long = 0L,
-    val trimmedSizeMb: Float = 0f
+    val trimmedSizeMb: Float = 0f,
+
+    // NEW: Camera & HUD Controls
+    val isDrawerOpen: Boolean = false,
+    val showGridLines: Boolean = false,
+    val isTorchOn: Boolean = false,
+    val isMicMuted: Boolean = false,
+    val showExposureSlider: Boolean = false,
+
+    // NEW: Hardware Settings
+    val videoQuality: String = "HD", // SD, HD, FHD, UHD
+    val fps: Int = 30,
+    val is10BitHdr: Boolean = false,
+    val isOisEnabled: Boolean = true
 )

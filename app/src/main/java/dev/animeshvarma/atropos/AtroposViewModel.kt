@@ -86,4 +86,17 @@ class AtroposViewModel : ViewModel() {
     fun updateRealSize(sizeMb: Float) {
         _uiState.update { it.copy(currentBufferSizeMb = sizeMb) }
     }
+
+    fun setVideoQuality(quality: String) {
+        _uiState.update { it.copy(videoQuality = quality) }
+    }
+    fun set10BitHdr(isEnabled: Boolean) {
+        _uiState.update { it.copy(is10BitHdr = isEnabled) }
+    }
+    fun setOisEnabled(isEnabled: Boolean) {
+        _uiState.update { it.copy(isOisEnabled = isEnabled) }
+    }
+    fun setFps(fps: Int) {
+        _uiState.update { it.copy(fps = fps) }
+    }
 }

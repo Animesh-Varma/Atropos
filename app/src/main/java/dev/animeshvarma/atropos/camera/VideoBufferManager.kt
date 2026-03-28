@@ -28,13 +28,37 @@ class VideoBufferManager(private val context: Context) {
     private var chunkingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
-    val recorder: Recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
-    val videoCapture: VideoCapture<Recorder> = VideoCapture.withOutput(recorder)
+    var recorder: Recorder = Recorder.Builder().setQualitySelector(QualitySelector.from(Quality.HD)).build()
+    var videoCapture: VideoCapture<Recorder> = VideoCapture.withOutput(recorder)
 
     var onSizeUpdated: ((sizeMb: Float) -> Unit)? = null
     private var pendingFinalizeAction: (() -> Unit)? = null
 
     init { clearBuffer() }
+
+    // NEW: Dynamic Hardware Rebuilder
+    fun updateHardwareConfig(qualityStr: String, is10BitHdr: Boolean) {
+        val quality = when (qualityStr) {
+            "4K" -> Quality.UHD
+            "FHD" -> Quality.FHD
+            "SD" -> Quality.SD
+            else -> Quality.HD
+        }
+
+        val dynamicRange = if (is10BitHdr) {
+            androidx.camera.core.DynamicRange.HDR_UNSPECIFIED_10_BIT
+        } else {
+            androidx.camera.core.DynamicRange.SDR
+        }
+
+        recorder = Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(quality))
+            .build()
+
+        videoCapture = VideoCapture.Builder(recorder)
+            .setDynamicRange(dynamicRange)
+            .build()
+    }
 
     @SuppressLint("MissingPermission")
     fun startRollingBuffer() {
@@ -165,6 +189,14 @@ class VideoBufferManager(private val context: Context) {
                 contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
                 resolver.update(it, contentValues, null, null)
             }
+        }
+    }
+
+    fun setMicMuted(isMuted: Boolean) {
+        try {
+            activeRecording?.mute(isMuted)
+        } catch (e: Exception) {
+            Log.e("AtroposBuffer", "Failed to mute audio: ${e.message}")
         }
     }
 }

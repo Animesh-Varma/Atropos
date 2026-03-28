@@ -17,8 +17,8 @@ android {
         // Dev Schema: Tens place >= 5 designates alpha/dev builds.
         // Note: Dev builds use the last production base to ensure incremental ordering.
         // Example: 451 = 400 (prior minor base for v0.4.x) + 50 (dev offset) + 1 (build).
-        versionCode = 2
-        versionName = "0.0.2"
+        versionCode = 3
+        versionName = "0.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

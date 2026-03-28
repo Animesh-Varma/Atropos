@@ -7,6 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +41,16 @@ fun AtroposAppOrchestrator(viewModel: AtroposViewModel) {
     var showSnapshotDialog by remember { mutableStateOf(false) }
     var showStopDialog by remember { mutableStateOf(false) }
 
+    // Floating Camera Controls State
+    var isDrawerOpen by remember { mutableStateOf(false) }
+    var isTorchOn by remember { mutableStateOf(false) }
+    var showGrid by remember { mutableStateOf(false) }
+    var isMicMuted by remember { mutableStateOf(false) }
+    var showExposureSlider by remember { mutableStateOf(false) }
+
+    var showCameraSettings by remember { mutableStateOf(false) }
+    var showImageSettings by remember { mutableStateOf(false) }
+
     LaunchedEffect(bufferManager) {
         bufferManager.onSizeUpdated = { sizeMb -> viewModel.updateRealSize(sizeMb) }
     }
@@ -45,7 +59,13 @@ fun AtroposAppOrchestrator(viewModel: AtroposViewModel) {
 
         // LAYER 1: The Camera Engine
         if (uiState.currentMode != AppMode.EDITOR) {
-            CameraPreviewBase(currentMode = uiState.currentMode, bufferManager = bufferManager)
+            CameraPreviewBase(
+                uiState = uiState,
+                bufferManager = bufferManager,
+                isTorchOn = isTorchOn,
+                showGridLines = showGrid,
+                showExposureSlider = showExposureSlider
+            )
         }
 
         // LAYER 2: The Pitch Black OLED Battery Saver
@@ -57,61 +77,127 @@ fun AtroposAppOrchestrator(viewModel: AtroposViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black) // 100% Black turns off OLED pixels entirely
+                    .background(Color.Black)
                     .clickable(
                         interactionSource = interactionSource,
-                        indication = null // Removes the tap ripple for a cleaner feel
+                        indication = null
                     ) { viewModel.wakeUp() },
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(32.dp),
-                    // Push it slightly up so it doesn't crowd the bottom buttons
                     modifier = Modifier.padding(bottom = 64.dp)
                 ) {
-                    // Brand new Expressive M3 Loader (Organic/Morphing)
                     LoadingIndicator(
-                        modifier = Modifier
-                            .scale(1.4f)
-                            .alpha(0.3f), // Semi-transparent heartbeat so main buttons pop
+                        modifier = Modifier.scale(1.4f).alpha(0.3f),
                         color = MaterialTheme.colorScheme.primary
                     )
 
                     Text(
                         text = "Recording...\nTap anywhere to wake screen",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium),
-                        color = Color.White.copy(alpha = 0.4f), // Dimmed text
+                        color = Color.White.copy(alpha = 0.4f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             }
         }
 
-        // LAYER 3: The Controls (Always floats on top of the black box!)
+        // LAYER 3: The Controls (HUD, Record Buttons, Side Panel)
         if (uiState.currentMode in listOf(AppMode.RECORDING_AWAKE, AppMode.RECORDING_ASLEEP, AppMode.IDLE)) {
             val isRecordingOrAsleep = uiState.currentMode != AppMode.IDLE
 
             Box(modifier = Modifier.fillMaxSize().padding(24.dp)) {
-                // HUD CHIP
+
+                // --- TOP: HUD CHIP ---
                 AnimatedVisibility(
                     visible = isRecordingOrAsleep, enter = fadeIn(), exit = fadeOut(),
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp)
                 ) {
                     Surface(
-                        color = Color.Black.copy(alpha = 0.5f),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
                             text = "${formatTime(uiState.recordingDurationMs)} | ${formatTime(uiState.currentBufferDurationMs)}",
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelLarge,
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
 
-                // LIQUID RECORD BUTTONS
+                // --- RIGHT SIDE: PREMIUM M3 DRAWER ---
+                // Only show side controls if awake or idle
+                if (uiState.currentMode != AppMode.RECORDING_ASLEEP) {
+                    Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+
+                            // The Trigger Button (Sleek M3 FilledIconButton)
+                            FilledIconButton(
+                                onClick = { isDrawerOpen = !isDrawerOpen },
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = if (isDrawerOpen) Icons.AutoMirrored.Filled.KeyboardArrowRight else Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Toggle Camera Controls"
+                                )
+                            }
+
+                            // The Expanding Control Pill
+                            AnimatedVisibility(
+                                visible = isDrawerOpen,
+                                enter = expandHorizontally(expandFrom = Alignment.End) + fadeIn(),
+                                exit = shrinkHorizontally(shrinkTowards = Alignment.End) + fadeOut()
+                            ) {
+                                Surface(
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    shape = RoundedCornerShape(24.dp), // Premium pill shape
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
+                                    tonalElevation = 6.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        IconButton(onClick = { isTorchOn = !isTorchOn }) {
+                                            Icon(if (isTorchOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff, "Flash")
+                                        }
+                                        IconButton(onClick = {
+                                            isMicMuted = !isMicMuted
+                                            bufferManager.setMicMuted(isMicMuted)
+                                        }) {
+                                            Icon(if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic, "Microphone")
+                                        }
+                                        IconButton(onClick = { showGrid = !showGrid }) {
+                                            Icon(
+                                                Icons.Default.Grid4x4,
+                                                "Grid",
+                                                tint = if (showGrid) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                            )
+                                        }
+
+                                        HorizontalDivider(modifier = Modifier.width(32.dp).padding(vertical = 8.dp))
+
+                                        IconButton(onClick = { showCameraSettings = true; isDrawerOpen = false }) {
+                                            Icon(Icons.Default.Settings, "Camera Settings")
+                                        }
+                                        IconButton(onClick = { showImageSettings = true; isDrawerOpen = false }) {
+                                            Icon(Icons.Default.Tune, "Image Settings")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- BOTTOM: LIQUID RECORD BUTTONS ---
                 Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) {
                     LiquidRecordButtons(
                         isRecording = isRecordingOrAsleep,
@@ -129,15 +215,97 @@ fun AtroposAppOrchestrator(viewModel: AtroposViewModel) {
             }
         }
 
-        // LAYER 4: Dialogs & Editor
+        // LAYER 4: M3 Settings Dialogs
+        // LAYER 4: M3 Settings Dialogs
+        if (showCameraSettings) {
+            AlertDialog(
+                onDismissRequest = { showCameraSettings = false },
+                icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                title = { Text("Camera Settings") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Resolution (Applied when Idle)", style = MaterialTheme.typography.labelLarge)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("HD", "FHD", "4K").forEach { res ->
+                                    FilterChip(
+                                        selected = uiState.videoQuality == res,
+                                        onClick = { viewModel.setVideoQuality(res) }, // Linked
+                                        label = { Text(res) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // NEW: Frame Rate Selector
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Frame Rate", style = MaterialTheme.typography.labelLarge)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(24, 30, 60).forEach { fps ->
+                                    FilterChip(
+                                        selected = uiState.fps == fps,
+                                        onClick = { viewModel.setFps(fps) },
+                                        label = { Text("${fps}fps") }
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Optical Stabilization", style = MaterialTheme.typography.bodyLarge)
+                            Switch(checked = uiState.isOisEnabled, onCheckedChange = { viewModel.setOisEnabled(it) }) // Linked
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showCameraSettings = false }) { Text("Done") }
+                }
+            )
+        }
+
+        if (showImageSettings) {
+            AlertDialog(
+                onDismissRequest = { showImageSettings = false },
+                icon = { Icon(Icons.Default.Tune, contentDescription = null) },
+                title = { Text("Image Settings") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("10-Bit HDR Video", style = MaterialTheme.typography.bodyLarge)
+                            Switch(checked = uiState.is10BitHdr, onCheckedChange = { viewModel.set10BitHdr(it) }) // Linked
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Exposure Slider Overlay", style = MaterialTheme.typography.bodyLarge)
+                            Switch(checked = showExposureSlider, onCheckedChange = { showExposureSlider = it })
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showImageSettings = false }) { Text("Done") }
+                }
+            )
+        }
+
+
+        // LAYER 5: Action Dialogs & Editor
         if (showSnapshotDialog) {
             SnapshotPromptDialog(
                 onEditSnippet = {
                     showSnapshotDialog = false
                     Toast.makeText(context, "Finalizing files, please wait...", Toast.LENGTH_SHORT).show()
-                    bufferManager.pauseForSnapshot {
-                        viewModel.proceedToEditor()
-                    }
+                    bufferManager.pauseForSnapshot { viewModel.proceedToEditor() }
                 },
                 onSaveFullBuffer = {
                     showSnapshotDialog = false
@@ -169,7 +337,6 @@ fun AtroposAppOrchestrator(viewModel: AtroposViewModel) {
             )
         }
 
-        // Editor Screen
         if (uiState.currentMode == AppMode.EDITOR) {
             EditorScreen(
                 uiState = uiState,
