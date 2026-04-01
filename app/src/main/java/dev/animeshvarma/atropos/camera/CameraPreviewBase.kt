@@ -99,7 +99,7 @@ fun CameraPreviewBase(
         }
     }
 
-    // 3. PIXEL 9 NATIVE HARDWARE CONTROLS (OIS & FPS via Camera2Interop)
+    // 3. NATIVE HARDWARE CONTROLS (OIS & FPS via Camera2Interop)
     // Runs instantly without breaking the recording loop!
     LaunchedEffect(uiState.fps, uiState.isOisEnabled, cameraControlRef) {
         cameraControlRef?.let { control ->
@@ -209,7 +209,6 @@ fun CameraPreviewBase(
             Box(modifier = Modifier.offset(x = (offset.x - 30).dp, y = (offset.y - 30).dp).size(60.dp).border(2.dp, Color.Yellow.copy(alpha = ringAlpha.value), CircleShape))
         }
 
-        // FIXED: Zoom Pill is pushed way up (200.dp) to clear recording buttons
         AnimatedVisibility(
             visible = showZoomPill,
             enter = fadeIn(), exit = fadeOut(),
@@ -226,7 +225,6 @@ fun CameraPreviewBase(
             }
         }
 
-        // FIXED: Exposure Slider is pushed up (140.dp) to clear recording buttons
         if (showExposureSlider) {
             Slider(
                 value = exposureValue,

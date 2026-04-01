@@ -75,7 +75,7 @@ fun EditorSliders(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 3. NEW: The Trim-Only Scrubber
+        // 3. The Trim-Only Scrubber
         Text(
             text = "Scrub Inside Cut: ${formatTime((clampedTrimPos - safeTrimStart).toLong())} / ${formatTime(trimmedLengthMs)}",
             style = MaterialTheme.typography.labelMedium,

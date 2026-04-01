@@ -53,11 +53,10 @@ class AtroposViewModel : ViewModel() {
         }
     }
 
-    // Made public so we can reset it if the user clicks "Cancel" on a dialog
     fun startSleepTimer() {
         sleepTimerJob?.cancel()
         sleepTimerJob = viewModelScope.launch {
-            delay(60000) // Changed to 1 MINUTE screen timeout
+            delay(60000)
             if (_uiState.value.currentMode == AppMode.RECORDING_AWAKE) {
                 _uiState.update { it.copy(currentMode = AppMode.RECORDING_ASLEEP) }
             }
