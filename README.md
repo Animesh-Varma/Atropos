@@ -13,7 +13,7 @@
 
 In Greek mythology, Atropos is the Fate who cuts the thread of time!
 
-Atropos is a continuous recording app designed to act like a personal dashcam for everyday use. Once started, it records video continuously in the background, saving it into a rolling buffer. When the buffer is full, the oldest footage is seamlessly overwritten by the newest! You never miss a moment, and you never fill up your phone's storage with gigabytes of dead footage! 
+Atropos is a continuous recording app designed to act like a personal dashcam for everyday use. Once started, it records video continuously, saving it into a rolling buffer. When the buffer is full, the oldest footage is seamlessly overwritten by the newest! You never miss a moment, and you never fill up your phone's storage with gigabytes of dead footage! 
 
 When something interesting happens, simply stop the recording, cut your desired clip from the buffer, and save it!
 
