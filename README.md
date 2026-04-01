@@ -2,7 +2,7 @@
 **Open-source continuous rolling-buffer camera for Android**
 
 > [!NOTE]  
-> **Provisional Alpha Release (v0.0.3)**
+> **Provisional README (v0.0.3)**
 > 
 > Atropos is currently in an early **PoC Alpha** stage. This README is provisional and will expand as the project grows. While the core rolling-buffer pipeline and video cutting features are functional, please review the [Known Issues](#known-issues) before use. 
 >
