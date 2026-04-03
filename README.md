@@ -94,11 +94,11 @@ Atropos utilizes `media3-transformer` for lossless, rapid multi-chunk stitching.
 
 As `v0.0.3` is an early Proof-of-Concept alpha, the following issues are known and actively being worked on:
 
-1. **Hardware Availability Crashes:** The UI controls (4K, 60fps, etc.) do not currently poll your specific device's camera hardware availability. Selecting a configuration your phone does not support (e.g., forcing 4K on a 1080p sensor) *will* crash the app.
-2. **Bulk Saving Behavior:** The "stitching" engine works perfectly in the Editor/Cut menu. However, if you click the "Save All" button to bypass the editor, it does not currently merge the files. It will dump the raw, unstitched 3-minute MP4 chunks into your gallery.
-3. **Barebones UI:** The user interface is currently very minimal and lacks visual polish, animations, and an app icon.
-4. **Hardcoded Buffer:** The 6-minute UI buffer (and 9-minute internal buffer) is currently hardcoded and cannot be adjusted by the user. 
-5. **Distribution:** Not yet available on Play Store, F-Droid, or IzzyOnDroid.
+- **Hardware Availability Crashes:** The UI controls (4K, 60fps, etc.) do not currently poll your specific device's camera hardware availability. Selecting a configuration your phone does not support (e.g., forcing 4K on a 1080p sensor) *will* crash the app.
+- **Bulk Saving Behavior:** The "stitching" engine works perfectly in the Editor/Cut menu. However, if you click the "Save All" button to bypass the editor, it does not currently merge the files. It will dump the raw, unstitched 3-minute MP4 chunks into your gallery.
+- **Barebones UI:** The user interface is currently very minimal and lacks visual polish, animations, and an app icon.
+- **Hardcoded Buffer:** The 6-minute UI buffer (and 9-minute internal buffer) is currently hardcoded and cannot be adjusted by the user. 
+- **Distribution:** Not yet available on Play Store, F-Droid, or IzzyOnDroid.
 
 ---
 
